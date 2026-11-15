@@ -8,6 +8,7 @@ import time
 from dotenv import load_dotenv
 from PIL import Image
 import tempfile
+import numpy as np
 
 # ================= 1. SETUP & CONFIG =================
 load_dotenv()
@@ -87,82 +88,62 @@ st.markdown("<h1>🧿 Sentinel AI Command Center</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color: #94a3b8; font-size: 1.1rem;'>Real-Time Multimodal Threat Detection & Scene Understanding</p>", unsafe_allow_html=True)
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric(label="System Status", value="Active", delta="Optimal")
+m1.metric(label="System Status", value="Active", delta="Cloud Deployed")
 m2.metric(label="Active Modules", value="3/3", delta="All Systems Go")
 m3.metric(label="Vision Model", value="Custom YOLO", delta="Fine-tuned")
 m4.metric(label="Latency", value="< 2.5s", delta="-12ms", delta_color="inverse")
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["🔴 Live Surveillance Stream", "📁 Archive Video Analysis"])
+tab1, tab2 = st.tabs(["📸 Cloud Camera Scanner", "📁 Archive Video Analysis"])
 
-# Strict Prompt for Gemini
-STRICT_PROMPT = """Analyze this 5-frame sequence from a security camera. 
+# Prompts setup
+STRICT_PROMPT_IMG = """Analyze this security camera frame. 
+Provide the analysis STRICTLY in these three short paragraphs:
+1. EVENT SUMMARY: (Describe the overall action in 2 sentences)
+2. THREAT ASSESSMENT: (State if any weapons/threats are visible in 1 sentence)
+3. CONCLUSION: (State if the scene is SAFE or SUSPICIOUS and why in 1 sentence)"""
+
+STRICT_PROMPT_VID = """Analyze this 5-frame sequence from a security camera. 
 Do NOT provide a frame-by-frame breakdown. 
 Provide the analysis STRICTLY in these three short paragraphs:
 1. EVENT SUMMARY: (Describe the overall action in 2 sentences)
 2. THREAT ASSESSMENT: (State if any weapons/threats are visible in 1 sentence)
 3. CONCLUSION: (State if the scene is SAFE or SUSPICIOUS and why in 1 sentence)"""
 
-# --- TAB 1: LIVE 3-SEC CAPTURE ---
+# --- TAB 1: CLOUD CAMERA SCANNER ---
 with tab1:
-    # Camera upar, report niche
-    st.markdown("### 🎥 Camera Feed")
-    cam_placeholder = st.empty()
-    cam_placeholder.image("https://www.shutterstock.com/image-vector/cctv-camera-icon-on-dark-600nw-2117565389.jpg", use_container_width=True)
+    st.markdown("### 📸 Live Threat Detection (Snapshot)")
     
-    col_btn, _ = st.columns([1, 2])
-    with col_btn:
-        start_btn = st.button("🚨 Initialize 3-Sec Capture & Analyze", key="live_btn")
+    # Securely request browser camera
+    cam_image = st.camera_input("Capture Scene for Security Analysis")
     
-    if start_btn:
-        cap = cv2.VideoCapture(0)
+    if cam_image:
         status_text = st.empty()
-        progress_bar = st.progress(0)
+        status_text.warning("⚙️ Processing Neural Overlay (YOLO + MediaPipe)...")
         
-        status_text.info("📡 Intercepting Live Feed...")
-        start_time = time.time()
-        raw_frames = []
+        # Streamlit format se OpenCV format me convert karna
+        file_bytes = np.asarray(bytearray(cam_image.read()), dtype=np.uint8)
+        frame = cv2.imdecode(file_bytes, 1)
         
-        while time.time() - start_time < 3.0:
-            ret, frame = cap.read()
-            if ret:
-                raw_frames.append(frame)
-                cam_placeholder.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
-                progress_bar.progress(min(int(((time.time() - start_time) / 3.0) * 100), 100))
-        cap.release()
+        annotated_frame = process_frame(frame)
+        st.image(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
         
-        if raw_frames:
-            status_text.warning("⚙️ Processing Neural Overlay (YOLO + MediaPipe)...")
-            annotated_frames = []
-            for i, f in enumerate(raw_frames):
-                annotated_frames.append(process_frame(f))
-                progress_bar.progress(int((i / len(raw_frames)) * 100))
-                
-            status_text.success("✅ Feed Processed. Engaging Gemini Engine...")
-            for f in annotated_frames:
-                cam_placeholder.image(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
-                time.sleep(0.05)
-            
-            # Report video ke theek niche full width me
-            st.markdown("### 🧠 Incident Report")
-            report_box = st.empty()
-            report_box.info("Extracting semantics from visual data...")
-            
-            step = max(1, len(annotated_frames) // 5)
-            selected_frames = [annotated_frames[i] for i in range(0, len(annotated_frames), step)][:5]
-            pil_images = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for f in selected_frames]
-            
-            try:
-                response = gm.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[STRICT_PROMPT] + pil_images,
-                )
-                # HTML div use kiya gaya hai ekdum premium paragraph look ke liye
-                report_box.markdown(f'<div class="report-box">{response.text}</div>', unsafe_allow_html=True)
-            except Exception as e:
-                report_box.error(f"API Error: {e}")
-        else:
-            st.error("Hardware Error: Camera not detected.")
+        status_text.success("✅ Feed Processed. Engaging Gemini Engine...")
+        
+        st.markdown("### 🧠 Incident Report")
+        report_box = st.empty()
+        report_box.info("Extracting semantics from visual data...")
+        
+        pil_img = Image.fromarray(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB))
+        
+        try:
+            response = gm.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[STRICT_PROMPT_IMG, pil_img],
+            )
+            report_box.markdown(f'<div class="report-box">{response.text}</div>', unsafe_allow_html=True)
+        except Exception as e:
+            report_box.error(f"API Error: {e}")
 
 # --- TAB 2: UPLOAD VIDEO ---
 with tab2:
@@ -175,7 +156,6 @@ with tab2:
             tfile.write(uploaded_video.read())
             cap = cv2.VideoCapture(tfile.name)
             
-            # Yahan bhi camera feed upar aur report niche
             vid_placeholder = st.empty()
             status_v_text = st.empty()
             status_v_text.info("⚙️ Initializing analysis...")
@@ -207,7 +187,7 @@ with tab2:
                 try:
                     response = gm.models.generate_content(
                         model="gemini-2.5-flash",
-                        contents=[STRICT_PROMPT] + pil_images,
+                        contents=[STRICT_PROMPT_VID] + pil_images,
                     )
                     report_v_box.markdown(f'<div class="report-box">{response.text}</div>', unsafe_allow_html=True)
                 except Exception as e:
