@@ -1,12 +1,12 @@
-import base64
 import os
 
 import cv2
 from dotenv import load_dotenv
 from google import genai
+from PIL import Image
 
 
-MODEL = "gemini-4-hydrogen"
+MODEL = "gemini-3.5-flash-lite"
 PROMPT = (
     "You are an AI security system. Analyze this image in two short sentences. "
     "Describe the scene and say whether you notice anything unusual or suspicious."
@@ -32,26 +32,18 @@ def main():
     if not success:
         raise SystemExit("Error: Webcam se frame capture nahi ho paya.")
 
-    success, encoded_frame = cv2.imencode(".jpg", frame)
-    if not success:
-        raise RuntimeError("Error: Webcam frame ko JPEG me encode nahi kar paya.")
-
-    image_data = base64.b64encode(encoded_frame.tobytes()).decode("ascii")
     client = genai.Client(api_key=api_key)
     print("Photo captured! Gemini scene analyze kar raha hai...\n")
-    interaction = client.interactions.create(
+    response = client.models.generate_content(
         model=MODEL,
-        input=[
-            {"type": "text", "text": PROMPT},
-            {"type": "image", "data": image_data, "mime_type": "image/jpeg"},
-        ],
+        contents=[PROMPT, Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))],
     )
 
-    if not interaction.output_text:
+    if not response.text:
         raise RuntimeError("Gemini ne koi text response nahi diya.")
 
     print("--- GEMINI SCENE ANALYSIS ---")
-    print(interaction.output_text)
+    print(response.text)
     print("-----------------------------")
 
 
