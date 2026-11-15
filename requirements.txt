@@ -1,0 +1,8 @@
+streamlit
+mediapipe==0.10.21
+opencv-contrib-python
+ultralytics
+google-genai==3.3.0
+python-dotenv
+Pillow
+numpy
